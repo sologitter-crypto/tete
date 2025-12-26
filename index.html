@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>てての還暦大冒険</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Rampart+One&display=swap" rel="stylesheet">
+
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #fce4ec; 
+            /* 基本のフォントをドット文字に設定 */
+            font-family: 'DotGothic16', sans-serif; 
+            touch-action: none; 
+        }
+        #game-container { position: relative; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
+        canvas { background: linear-gradient(to bottom, #87CEEB, #ffffff); box-shadow: 0 0 20px rgba(255, 0, 0, 0.2); }
+        
+        /* UIレイヤー（スコアなど）も見やすいドット文字に */
+        #ui-layer { position: absolute; top: 10px; left: 10px; font-size: 24px; color: #333; pointer-events: none; text-shadow: 2px 2px 0px #fff; }
+        
+        #start-screen, #game-over-screen, #loading-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255, 255, 255, 0.95);
+            display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; z-index: 10;
+        }
+
+        /* タイトルはインパクトのあるRampart Oneを使用 */
+        h1 {
+            font-family: 'Rampart One', cursive;
+            font-size: 50px;
+            color: #d32f2f;
+            margin-bottom: 10px;
+            text-shadow: 4px 4px 0px #ffcccc;
+            letter-spacing: 2px;
+            line-height: 1.2;
+        }
+
+        h2 {
+            font-family: 'Rampart One', cursive;
+            font-size: 40px;
+            color: #333;
+        }
+
+        p { font-size: 18px; line-height: 1.6; }
+
+        button { 
+            background-color: #d32f2f; color: white; padding: 15px 40px; 
+            font-family: 'DotGothic16', sans-serif; /* ボタンもドット文字 */
+            font-size: 24px; border: 4px solid #b71c1c; border-radius: 10px; 
+            cursor: pointer; margin-top: 30px; 
+            box-shadow: 0 6px 0 #b71c1c; /* ボタンに厚みを出す */
+            transition: transform 0.1s;
+        }
+        button:active { transform: translateY(4px); box-shadow: 0 2px 0 #b71c1c; }
+
+        .hidden { display: none !important; }
+        
+        /* ポップアップテキストもインパクト重視 */
+        .popup-text { 
+            position: absolute; 
+            font-family: 'Rampart One', cursive;
+            font-size: 30px; 
+            color: #ff0000; 
+            animation: floatUp 1s ease-out forwards; 
+            pointer-events: none; 
+            text-shadow: 2px 2px 0px white, -1px -1px 0 white; 
+            width: 100%; text-align: center; 
+        }
+        @keyframes floatUp { 0% { opacity: 1; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(-80px) scale(1.5); } }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+    <div id="ui-layer">
+        スコア: <span id="score">0</span><br>
+        ててライフ: <span id="life">❤❤❤</span>
+    </div>
+
+    <div id="loading-screen">
+        <h2>準備中でごわす...</h2>
+        <p>画像を読み込んでいます<br>少々お待ちくだされ</p>
+    </div>
+
+    <div id="start-screen" class="hidden">
+        <h1>㊗️還暦！<br>てての大冒険</h1>
+        <p>画面の左右をタップして<br>「めぴ」や「酒」を集めるゲームじゃ！</p>
+        <button id="start-btn">ゲームスタート</button>
+    </div>
+
+    <div id="game-over-screen" class="hidden">
+        <h2 style="color:#d32f2f;">ゲーム終了！</h2>
+        <p>今回の記録: <span id="final-score" style="font-size:30px; font-weight:bold;">0</span>点</p>
+        <p id="comment" style="margin-top:20px; font-weight:bold;"></p>
+        <button id="retry-btn">もう一回やる</button>
+    </div>
+</div>
+
+<script>
+    // ==========================================
+    // ★ コンテンツ辞書 ★
+    // ==========================================
+    const dadDictionary = [
+        { id: 'mepi',   text: 'めぴ',     src: 'mepi.png',   type: 'item', score: 10, sound: 'めぴ！' },
+        { id: 'puyo',   text: 'ぷよ',     src: 'puyo.png',   type: 'item', score: 10, sound: 'ぷよ！' },
+        { id: 'sake',   text: '日本酒',   src: 'sake.png',   type: 'saké', score: 50, sound: 'うまい！' },
+        { id: 'hiroki', text: 'ピョンボルグ', src: 'hiroki.png', type: 'saké', score: 100, sound: 'ヒロキ登場！' },
+        // { id: 'teni', text: 'てにてに', src: 'teniteni.png', type: 'item', score: 20, sound: 'てにてに！' }, // 追加例
+    ];
+
+    const playerConfig = {
+        src: 'tete.png', 
+        width: 80,
+        height: 80
+    };
+    // ==========================================
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // 画像管理
+    const images = {}; 
+    let loadedCount = 0;
+    const totalImages = dadDictionary.length + 1; 
+
+    function resize() {
+        canvas.width = Math.min(window.innerWidth, 600);
+        canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // 画像プリロード
+    function preloadImages() {
+        const loadList = [...dadDictionary, { id: 'player', src: playerConfig.src }];
+        loadList.forEach(item => {
+            const img = new Image();
+            img.src = './images/' + item.src;
+            img.onload = () => { images[item.id] = img; loadedCount++; checkLoadComplete(); };
+            img.onerror = () => { console.error('画像なし:', item.src); loadedCount++; checkLoadComplete(); };
+        });
+    }
+
+    function checkLoadComplete() {
+        if (loadedCount >= totalImages) {
+            document.getElementById('loading-screen').classList.add('hidden');
+            document.getElementById('start-screen').classList.remove('hidden');
+        }
+    }
+
+    // ゲーム変数
+    let gameActive = false;
+    let score = 0;
+    let lives = 3;
+    let items = [];
+    let frameCount = 0;
+    let guitarMode = false;
+    let guitarTimer = 0;
+    let playerX = canvas.width / 2;
+    let isTouchLeft = false, isTouchRight = false;
+
+    // イベントリスナー
+    document.getElementById('start-btn').addEventListener('click', startGame);
+    document.getElementById('retry-btn').addEventListener('click', startGame);
+
+    document.addEventListener('keydown', e => {
+        if(e.key==='ArrowLeft') isTouchLeft=true;
+        if(e.key==='ArrowRight') isTouchRight=true;
+    });
+    document.addEventListener('keyup', e => {
+        if(e.key==='ArrowLeft') isTouchLeft=false;
+        if(e.key==='ArrowRight') isTouchRight=false;
+    });
+    canvas.addEventListener('touchstart', e => {
+        e.preventDefault();
+        if(e.touches[0].clientX < window.innerWidth/2) isTouchLeft=true; else isTouchRight=true;
+    }, {passive:false});
+    canvas.addEventListener('touchend', e => { isTouchLeft=false; isTouchRight=false; });
+
+    function startGame() {
+        gameActive = true;
+        score = 0; lives = 3; items = []; frameCount = 0; guitarMode = false;
+        playerX = canvas.width / 2;
+        document.getElementById('start-screen').classList.add('hidden');
+        document.getElementById('game-over-screen').classList.add('hidden');
+        document.getElementById('score').innerText = score;
+        document.getElementById('life').innerText = '❤'.repeat(lives);
+        gameLoop();
+    }
+
+    function spawnItem() {
+        const randIndex = Math.floor(Math.random() * dadDictionary.length);
+        const itemData = dadDictionary[randIndex];
+        items.push({
+            x: Math.random() * (canvas.width - 60),
+            y: -60,
+            size: 60,
+            speed: Math.random() * 3 + 3,
+            data: itemData
+        });
+    }
+
+    function gameLoop() {
+        if (!gameActive) return;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // プレイヤー移動
+        if (isTouchLeft && playerX > 0) playerX -= 7;
+        if (isTouchRight && playerX < canvas.width - playerConfig.width) playerX += 7;
+
+        // プレイヤー描画
+        if (images['player']) {
+            ctx.drawImage(images['player'], playerX, canvas.height - 120, playerConfig.width, playerConfig.height);
+        } else {
+            ctx.fillStyle = 'red';
+            ctx.fillRect(playerX, canvas.height - 120, playerConfig.width, playerConfig.height);
+        }
+
+        // ★フォント変更点：ギターモードの演出
+        if (guitarMode) {
+            guitarTimer--;
+            // ここでRampart Oneを使う
+            ctx.font = '40px "Rampart One"';
+            ctx.fillStyle = 'gold';
+            ctx.textAlign = 'center';
+            ctx.shadowColor = "black";
+            ctx.shadowBlur = 4;
+            ctx.fillText('★ギターメン無敵★', canvas.width/2, 150);
+            ctx.shadowBlur = 0; // 影をリセット
+
+            if (guitarTimer <= 0) guitarMode = false;
+        }
+
+        // アイテム出現
+        if (frameCount % 50 === 0) spawnItem();
+
+        for (let i = 0; i < items.length; i++) {
+            let item = items[i];
+            item.y += item.speed;
+
+            // アイテム画像
+            const img = images[item.data.id];
+            if (img) ctx.drawImage(img, item.x, item.y, item.size, item.size);
+
+            // ★フォント変更点：アイテム名
+            // ここでDotGothic16を使う
+            ctx.font = '16px "DotGothic16"';
+            ctx.fillStyle = '#333';
+            ctx.textAlign = 'left'; 
+            ctx.fillText(item.data.text, item.x, item.y + item.size + 15);
+
+            // 当たり判定
+            if (item.x < playerX + playerConfig.width &&
+                item.x + item.size > playerX &&
+                item.y < canvas.height - 120 + playerConfig.height &&
+                item.y + item.size > canvas.height - 120) {
+                
+                // ヒット
+                score += item.data.score;
+                document.getElementById('score').innerText = score;
+                
+                // ポップアップ
+                const el = document.createElement('div');
+                el.className = 'popup-text';
+                let msg = item.data.sound;
+                if(Math.random() > 0.7) msg += "してちょんまげ";
+                el.innerText = msg;
+                el.style.left = 0; 
+                el.style.top = (canvas.height - 300) + 'px'; // 少し高めに表示
+                document.getElementById('game-container').appendChild(el);
+                setTimeout(() => el.remove(), 1000);
+
+                if (item.data.id === 'sake' || item.data.id === 'hiroki') {
+                    if(Math.random() > 0.5) { guitarMode = true; guitarTimer = 200; }
+                }
+
+                items.splice(i, 1); i--;
+            } else if (item.y > canvas.height) {
+                items.splice(i, 1); i--;
+            }
+        }
+        frameCount++;
+        requestAnimationFrame(gameLoop);
+    }
+
+    preloadImages();
+
+</script>
+</body>
+</html>
